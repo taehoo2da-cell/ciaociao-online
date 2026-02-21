@@ -14,6 +14,9 @@ const STAIRS_SLOTS = 10;
 const PAWNS_TOTAL = 7;
 const INSTANT_WIN_STAIRS = 3;
 
+// ✅ 버전 확인용(적용 확인 끝나면 지워도 됨)
+console.log("SERVER VERSION: 2026-02-21-FINAL");
+
 function rollDie() {
   const faces = [1, 2, 3, 4, "X", "X"];
   return faces[Math.floor(Math.random() * faces.length)];
@@ -142,11 +145,12 @@ function checkEndConditions(room) {
 }
 
 function nextSeatFixed(room, seat) {
+  // ✅ fixed order round-robin
   return (seat + 1) % room.game.players.length;
 }
 
 /**
- * ✅ 선택(믿음/의심) 가능 조건 (최종 확정)
+ * ✅ 선택(믿음/의심) 가능 조건
  * - (움직일 말 있음) OR (움직일 말 없음 AND 계단 말 있음)
  * - 턴 플레이어는 선택 불가
  */
@@ -316,7 +320,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // ensure bridge pawn exists if possible
     ensurePawnOnBridge(actor);
 
     const roll = rollDie();
@@ -383,7 +386,6 @@ io.on("connection", (socket) => {
     const seat = room.players.findIndex((p) => p.socketId === socket.id);
     if (seat === -1) return;
 
-    // only eligible can decide
     const eligibleSeats = room.game.eligibleSeats || [];
     if (!eligibleSeats.includes(seat)) return;
 
@@ -405,7 +407,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // ✅ FIX: 전원 믿음(의심자 0명) => 무조건 선언대로 전진 (X여도 낙하 금지)
+    // ✅ FIX: all-believe => always move actor (even X)
     const challengersSeats = room.game.challengers.slice();
     if (challengersSeats.length === 0) {
       const actor = room.game.players[room.game.turnSeat];
@@ -429,7 +431,7 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // ===== reveal/resolve =====
+    // reveal/resolve
     room.game.phase = "RESOLVE";
 
     const actor = room.game.players[room.game.turnSeat];
@@ -440,7 +442,6 @@ io.on("connection", (socket) => {
     room.game.lastAction = `공개=${roll} | ${truthful ? "정직" : "거짓/X"} | 의심자 ${challengersSeats.length}명`;
 
     if (truthful) {
-      // truthful: challengers penalized + actor advances declared
       for (const s of challengersSeats) {
         const ch = room.game.players[s];
         const fell = dropBridgePawn(ch);
@@ -448,7 +449,6 @@ io.on("connection", (socket) => {
       }
       moveForward(room.game, actor, declared);
     } else {
-      // false/X: actor penalized + challengers advance declared
       ensurePawnOnBridge(actor);
       dropBridgePawn(actor);
 
