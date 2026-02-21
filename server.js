@@ -8,6 +8,7 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
+/** ===== RULES ===== */
 const BRIDGE_LEN = 8;
 const STAIRS_SLOTS = 10;
 const PAWNS_TOTAL = 7;
@@ -40,8 +41,8 @@ function ensurePawnOnBridge(p) {
   return false;
 }
 
+// ✅ “움직일 말 있음” 정의
 function hasMovablePawn(p) {
-  // ✅ “남은 말(움직일 말)” 정의: reserve 또는 다리 위 말
   return p.reserve > 0 || p.onBridge !== null;
 }
 
@@ -53,6 +54,7 @@ function dropBridgePawn(p) {
   return true;
 }
 
+/** stairsOrder index+1 = score (1..10) */
 function stairsScore(stairsOrder, playerId) {
   let sum = 0;
   for (let i = 0; i < stairsOrder.length; i++) {
@@ -73,7 +75,7 @@ function addToStairs(game, playerId) {
   return true;
 }
 
-// 가장 낮은 점수(=1점 쪽) 말 1개 버림 + 자동 압축
+// ✅ lowest score (1-point side) remove + shift
 function removeOneLowestStairsAndShift(game, victimPlayerId) {
   const idx = game.stairsOrder.findIndex((x) => x === victimPlayerId);
   if (idx === -1) return false;
@@ -113,6 +115,7 @@ function endGameByScore(room, reason) {
 function checkEndConditions(room) {
   const g = room.game;
 
+  // 1) instant win by stairs count
   for (const p of g.players) {
     if (stairsCount(g.stairsOrder, p.id) >= INSTANT_WIN_STAIRS) {
       g.winnerId = p.id;
@@ -122,12 +125,13 @@ function checkEndConditions(room) {
     }
   }
 
+  // 2) stairs full -> score end
   if (g.stairsOrder.length >= STAIRS_SLOTS) {
     endGameByScore(room, "계단 10칸 종료");
     return true;
   }
 
-  // ✅ “움직일 말이 아무에게도 없으면” 종료(계단이 다 안 차도)
+  // 3) nobody has movable pawn -> score end
   const anyMovable = g.players.some((p) => hasMovablePawn(p));
   if (!anyMovable) {
     endGameByScore(room, "움직일 말 없음 종료");
@@ -141,27 +145,27 @@ function nextSeatFixed(room, seat) {
   return (seat + 1) % room.game.players.length;
 }
 
-// ✅ 너가 말한 의심/믿음 가능 조건(핵심):
-// - 남은 말 있으면 가능
-// - 남은 말 없으면 계단 말 있을 때만 가능
-function canDecideChallenge(game, seat) {
+/**
+ * ✅ 선택(믿음/의심) 가능 조건 (최종 확정)
+ * - (움직일 말 있음) OR (움직일 말 없음 AND 계단 말 있음)
+ * - 턴 플레이어는 선택 불가
+ */
+function canDecide(game, seat) {
   if (seat === game.turnSeat) return false;
   const p = game.players[seat];
-  const movable = hasMovablePawn(p);
-  if (movable) return true;
-  // 남은 말 없음 => 계단 말 있어야 가능
+  if (hasMovablePawn(p)) return true;
   return stairsCount(game.stairsOrder, p.id) > 0;
 }
 
 function computeEligibleSeats(game) {
   const eligible = [];
   for (let s = 0; s < game.players.length; s++) {
-    if (canDecideChallenge(game, s)) eligible.push(s);
+    if (canDecide(game, s)) eligible.push(s);
   }
   return eligible;
 }
 
-/** ===== rooms ===== */
+/** ===== ROOMS ===== */
 const rooms = new Map();
 
 function makeRoomCode() {
@@ -182,8 +186,6 @@ function publicState(room) {
   let game = null;
   if (room.game) {
     const g = room.game;
-    const eligibleSeats = (g.phase === "CHALLENGE") ? (g.eligibleSeats ?? []) : [];
-
     game = {
       started: true,
       phase: g.phase,
@@ -200,7 +202,7 @@ function publicState(room) {
 
       stairsOrder: g.stairsOrder,
       challengers: g.challengers ?? [],
-      eligibleSeats,
+      eligibleSeats: g.eligibleSeats ?? [],
       decisionsCount: g.decisions ? Object.keys(g.decisions).length : 0,
 
       players: g.players.map((pp) => ({
@@ -225,6 +227,7 @@ function broadcast(room) {
 }
 
 function startGame(room) {
+  // start order random once
   shuffleInPlace(room.players);
 
   const gamePlayers = room.players.map((p) =>
@@ -304,6 +307,7 @@ io.on("connection", (socket) => {
 
     const actor = room.game.players[room.game.turnSeat];
 
+    // fixed order: no movable -> pass
     if (!hasMovablePawn(actor)) {
       room.game.lastAction = "움직일 말 없음 → 리타이어(턴 패스)";
       room.game.turnSeat = nextSeatFixed(room, room.game.turnSeat);
@@ -312,6 +316,7 @@ io.on("connection", (socket) => {
       return;
     }
 
+    // ensure bridge pawn exists if possible
     ensurePawnOnBridge(actor);
 
     const roll = rollDie();
@@ -339,20 +344,18 @@ io.on("connection", (socket) => {
 
     room.game.declared = declared;
     room.game.phase = "CHALLENGE";
-    room.game.lastAction = `선언: ${declared} | 의심/믿음 가능 조건 적용`;
+    room.game.lastAction = `선언: ${declared}`;
 
     room.game.decisions = {};
     room.game.challengers = [];
 
-    // ✅ 핵심: 남은 말 있는 사람은 선택 가능, 남은 말 없으면 계단 말 있어야 가능
     const eligible = computeEligibleSeats(room.game);
     room.game.eligibleSeats = eligible;
 
-    // eligible이 0이면 “아무도 선택할 사람 없음” => 자동 믿음 처리(선언만큼 전진)
+    // if nobody can decide -> auto move
     if (eligible.length === 0) {
       const actor = room.game.players[room.game.turnSeat];
       room.game.lastAction = `선언: ${declared} | 선택자 0명 → 자동 전진`;
-
       moveForward(room.game, actor, declared);
 
       room.game.currentRoll = null;
@@ -380,10 +383,7 @@ io.on("connection", (socket) => {
     const seat = room.players.findIndex((p) => p.socketId === socket.id);
     if (seat === -1) return;
 
-    // 턴 플레이어는 선택 불가
-    if (seat === room.game.turnSeat) return;
-
-    // ✅ eligibleSeats에 포함된 사람만 선택 가능
+    // only eligible can decide
     const eligibleSeats = room.game.eligibleSeats || [];
     if (!eligibleSeats.includes(seat)) return;
 
@@ -405,7 +405,31 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // ===== 공개/판정 =====
+    // ✅ FIX: 전원 믿음(의심자 0명) => 무조건 선언대로 전진 (X여도 낙하 금지)
+    const challengersSeats = room.game.challengers.slice();
+    if (challengersSeats.length === 0) {
+      const actor = room.game.players[room.game.turnSeat];
+      const declared = room.game.declared;
+
+      room.game.lastAction = `전원 믿음 → ${declared}칸 전진`;
+      moveForward(room.game, actor, declared);
+
+      room.game.currentRoll = null;
+      room.game.declared = null;
+      room.game.decisions = null;
+      room.game.eligibleSeats = null;
+      room.game.challengers = [];
+
+      if (!checkEndConditions(room)) {
+        room.game.turnSeat = nextSeatFixed(room, room.game.turnSeat);
+        room.game.phase = "ROLL";
+      }
+
+      broadcast(room);
+      return;
+    }
+
+    // ===== reveal/resolve =====
     room.game.phase = "RESOLVE";
 
     const actor = room.game.players[room.game.turnSeat];
@@ -413,26 +437,22 @@ io.on("connection", (socket) => {
     const declared = room.game.declared;
 
     const truthful = roll !== "X" && roll === declared;
-    const challengers = room.game.challengers.slice();
-
-    room.game.lastAction = `공개=${roll} | ${truthful ? "정직" : "거짓/X"} | 의심자 ${challengers.length}명`;
+    room.game.lastAction = `공개=${roll} | ${truthful ? "정직" : "거짓/X"} | 의심자 ${challengersSeats.length}명`;
 
     if (truthful) {
-      // 정직: 의심자 패널티 + 정직자도 전진
-      for (const s of challengers) {
+      // truthful: challengers penalized + actor advances declared
+      for (const s of challengersSeats) {
         const ch = room.game.players[s];
-
         const fell = dropBridgePawn(ch);
-        if (!fell) {
-          // 다리 말 없으면 계단 말 버림(1점 쪽)
-          removeOneLowestStairsAndShift(room.game, ch.id);
-        }
+        if (!fell) removeOneLowestStairsAndShift(room.game, ch.id);
       }
       moveForward(room.game, actor, declared);
     } else {
-      // 거짓/X: 말한 사람 낙하 + 의심자 전진
+      // false/X: actor penalized + challengers advance declared
+      ensurePawnOnBridge(actor);
       dropBridgePawn(actor);
-      for (const s of challengers) {
+
+      for (const s of challengersSeats) {
         const ch = room.game.players[s];
         moveForward(room.game, ch, declared);
       }
@@ -442,11 +462,11 @@ io.on("connection", (socket) => {
     room.game.declared = null;
     room.game.decisions = null;
     room.game.eligibleSeats = null;
+    room.game.challengers = [];
 
     if (!checkEndConditions(room)) {
       room.game.turnSeat = nextSeatFixed(room, room.game.turnSeat);
       room.game.phase = "ROLL";
-      room.game.challengers = [];
     }
 
     broadcast(room);
