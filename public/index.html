@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>챠오챠오 온라인</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    body{margin:0;padding:16px;background:#0b0c10;color:#eaf0ff}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .card{background:#121420;border:1px solid #263045;border-radius:14px;padding:14px;margin-top:12px}
+    button{background:#1f2a44;color:#eaf0ff;border:1px solid #2f3b5c;border-radius:12px;padding:10px 12px;cursor:pointer;font-weight:800}
+    button:disabled{opacity:.45;cursor:not-allowed}
+    input{background:#0f1220;color:#eaf0ff;border:1px solid #2f3b5c;border-radius:10px;padding:9px 10px}
+    .muted{opacity:.8;font-size:13px;line-height:1.5}
+    .big{font-size:22px;font-weight:900}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #2f3b5c;background:#0f1220;font-size:12px;opacity:.95}
+    .grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin-top:10px}
+    .cell{height:44px;border:1px solid #2a3555;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;background:#0f1220}
+    .token{position:absolute;bottom:6px;left:6px;right:6px;display:flex;justify-content:center;gap:4px;flex-wrap:wrap}
+    .dot{width:10px;height:10px;border-radius:999px;border:1px solid rgba(255,255,255,.25)}
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px}
+    .modal.show{display:flex}
+    .box{width:min(560px,100%)}
+
+    .playerStat { border:1px solid #2a3555; border-radius:12px; padding:10px; background:#0f1220; }
+    .playerStat .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .playerStat .name{font-weight:900}
+    .playerStat .small{opacity:.85;font-size:12px;line-height:1.5}
+    .bar{height:10px;border:1px solid #2a3555;border-radius:999px;overflow:hidden;background:#0b0c10;margin-top:8px}
+    .bar>div{height:100%;background:#7aa2ff;width:0%}
+
+    @media (max-width: 520px){
+      body{padding:12px}
+      .row{gap:8px}
+      button{width:100%}
+      input{width:100%}
+      .grid{grid-template-columns:repeat(4,1fr)}
+      .big{font-size:20px}
+    }
+  </style>
+</head>
+<body>
+  <div class="row" style="justify-content:space-between">
+    <div>
+      <div class="big">챠오챠오 온라인</div>
+      <div class="muted">방 코드로 2~4인 멀티. 주사위 결과는 굴린 사람만 봄.</div>
+    </div>
+    <div class="row">
+      <input id="name" placeholder="닉네임" maxlength="12"/>
+      <input id="code" placeholder="방 코드(5글자)" maxlength="5"/>
+      <button id="btnCreate">방 만들기</button>
+      <button id="btnJoin">참가</button>
+      <button id="btnLeave" disabled>나가기</button>
+    </div>
+  </div>
+
+  <div id="roomCard" class="card" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div class="muted">방 코드</div>
+        <div class="big" id="roomCode">-----</div>
+      </div>
+      <div class="row">
+        <button id="btnStart" disabled>게임 시작(호스트)</button>
+      </div>
+    </div>
+
+    <div class="muted" style="margin-top:10px">플레이어</div>
+    <div id="players" class="row" style="margin-top:8px"></div>
+
+    <div class="card" id="statsCard" style="display:none">
+      <div class="muted">플레이어 상태 (남은 말/낙하/골인/위치)</div>
+      <div id="stats" style="margin-top:10px; display:grid; gap:10px;"></div>
+    </div>
+
+    <div id="gameArea" style="display:none">
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <div class="muted">현재 상태</div>
+            <div class="big" id="status">-</div>
+            <div class="muted" id="substatus" style="margin-top:6px">-</div>
+          </div>
+          <div class="row">
+            <button id="btnRoll" disabled>주사위 굴리기</button>
+            <input id="declare" type="number" min="1" max="4" value="3" style="width:90px" />
+            <button id="btnDeclare" disabled>선언</button>
+          </div>
+        </div>
+
+        <div class="muted" style="margin-top:10px">
+          의심 단계: 서버가 시계방향으로 한 명씩 “믿음/의심”을 요청함.
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button id="btnBelieve" disabled>믿음</button>
+          <button id="btnChallenge" disabled>의심!</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="muted">다리</div>
+        <div id="bridge" class="grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal">
+    <div class="card box">
+      <div class="muted">지금은 <b>당신</b>만 보세요.</div>
+      <div class="big" style="margin-top:10px">주사위 결과: <span id="rollValue">-</span></div>
+      <div class="muted" style="margin-top:10px">X면 1~4 중 하나를 선언(블러핑 강제).</div>
+      <div class="row" style="justify-content:flex-end;margin-top:12px">
+        <button id="closeModal">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
