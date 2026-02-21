@@ -6,37 +6,142 @@
   <title>챠오챠오 온라인</title>
   <style>
     :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-    body{margin:0;padding:16px;background:#0b0c10;color:#eaf0ff}
+    body{margin:0;padding:14px;background:#0b0c10;color:#eaf0ff}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .card{background:#121420;border:1px solid #263045;border-radius:14px;padding:14px;margin-top:12px}
-    button{background:#1f2a44;color:#eaf0ff;border:1px solid #2f3b5c;border-radius:12px;padding:10px 12px;cursor:pointer;font-weight:800}
+    .card{background:#121420;border:1px solid #263045;border-radius:16px;padding:14px;margin-top:12px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .muted{opacity:.82;font-size:13px;line-height:1.5}
+    .big{font-size:22px;font-weight:950;letter-spacing:-.2px}
+    .pill{display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid #2f3b5c;background:#0f1220;font-size:12px;opacity:.95}
+
+    button{
+      background:#1f2a44;color:#eaf0ff;border:1px solid #2f3b5c;
+      border-radius:14px;padding:12px 14px;cursor:pointer;font-weight:950;
+      transition:transform .05s ease;
+    }
+    button:active{transform:scale(.99)}
     button:disabled{opacity:.45;cursor:not-allowed}
-    input{background:#0f1220;color:#eaf0ff;border:1px solid #2f3b5c;border-radius:10px;padding:9px 10px}
-    .muted{opacity:.8;font-size:13px;line-height:1.5}
-    .big{font-size:22px;font-weight:900}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #2f3b5c;background:#0f1220;font-size:12px;opacity:.95}
-    .grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin-top:10px}
-    .cell{height:44px;border:1px solid #2a3555;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;background:#0f1220}
-    .token{position:absolute;bottom:6px;left:6px;right:6px;display:flex;justify-content:center;gap:4px;flex-wrap:wrap}
-    .dot{width:10px;height:10px;border-radius:999px;border:1px solid rgba(255,255,255,.25)}
-    .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px}
+    input{
+      background:#0f1220;color:#eaf0ff;border:1px solid #2f3b5c;
+      border-radius:12px;padding:11px 12px
+    }
+
+    .grid{display:grid;gap:8px;margin-top:10px}
+    .bridge{grid-template-columns:repeat(8,1fr)}
+    .stairs{grid-template-columns:repeat(10,1fr)}
+
+    /* ===== Lake + Stepping Stones (Bridge) ===== */
+    .lakeWrap{
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid #263045;
+      background:
+        radial-gradient(1000px 300px at 20% 20%, rgba(80,140,255,.25), transparent 60%),
+        radial-gradient(800px 260px at 80% 40%, rgba(60,200,255,.18), transparent 60%),
+        linear-gradient(180deg, #071a2b 0%, #04111f 100%);
+      padding: 12px;
+    }
+    .lakeRipples{
+      position:absolute; inset:0;
+      background:
+        repeating-radial-gradient(circle at 20% 30%, rgba(255,255,255,.06) 0 2px, transparent 2px 12px),
+        repeating-radial-gradient(circle at 70% 60%, rgba(255,255,255,.04) 0 1px, transparent 1px 10px);
+      opacity:.35;
+      filter: blur(0.2px);
+      pointer-events:none;
+    }
+
+    .cell{
+      height:46px;border:1px solid #2a3555;border-radius:14px;
+      display:flex;align-items:center;justify-content:center;position:relative;background:#0f1220
+    }
+    .cell small{opacity:.65;font-weight:700}
+
+    .cell.stone{
+      height: 54px;
+      border-radius: 999px;
+      background:
+        radial-gradient(circle at 35% 30%, rgba(255,255,255,.18), transparent 40%),
+        radial-gradient(circle at 60% 70%, rgba(0,0,0,.25), transparent 55%),
+        linear-gradient(180deg, #1a2233 0%, #0c1221 100%);
+      border: 1px solid rgba(255,255,255,.08);
+      box-shadow:
+        0 10px 18px rgba(0,0,0,.35),
+        inset 0 1px 0 rgba(255,255,255,.10);
+    }
+    .cell.stone small{
+      position:absolute; top:7px; left:0; right:0;
+      text-align:center;
+      opacity:.55;
+      font-weight:800;
+    }
+
+    .token{position:absolute;bottom:7px;left:7px;right:7px;display:flex;justify-content:center;gap:4px;flex-wrap:wrap; z-index:2}
+    .dot{
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.35);
+      box-shadow: 0 8px 14px rgba(0,0,0,.35);
+      will-change: transform;
+    }
+
+    .playerStat { border:1px solid #2a3555; border-radius:14px; padding:12px; background:#0f1220; }
+    .playerStat .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .playerStat .name{font-weight:950}
+    .playerStat .small{opacity:.85;font-size:12px;line-height:1.55}
+    .bar{height:10px;border:1px solid #2a3555;border-radius:999px;overflow:hidden;background:#0b0c10;margin-top:8px}
+    .bar>div{height:100%;background:#7aa2ff;width:0%}
+
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .actions button{flex:1;min-width:140px}
+
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;padding:16px}
     .modal.show{display:flex}
     .box{width:min(560px,100%)}
 
-    .playerStat { border:1px solid #2a3555; border-radius:12px; padding:10px; background:#0f1220; }
-    .playerStat .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
-    .playerStat .name{font-weight:900}
-    .playerStat .small{opacity:.85;font-size:12px;line-height:1.5}
-    .bar{height:10px;border:1px solid #2a3555;border-radius:999px;overflow:hidden;background:#0b0c10;margin-top:8px}
-    .bar>div{height:100%;background:#7aa2ff;width:0%}
+    /* ===== Ghost token + splash ===== */
+    .ghostDot{
+      position: fixed;
+      width: 12px; height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.35);
+      box-shadow: 0 10px 18px rgba(0,0,0,.35);
+      z-index: 9999;
+      pointer-events:none;
+      will-change: transform, opacity;
+      animation: splashDrop .55s ease-in forwards;
+    }
+    @keyframes splashDrop{
+      0%   { transform: translate(0,0) scale(1); opacity:1; }
+      70%  { transform: translate(0,90px) scale(.9); opacity:.95; }
+      100% { transform: translate(0,120px) scale(.65); opacity:0; }
+    }
+    @keyframes splashRing{
+      0%   { transform: scale(.2); opacity:.7; }
+      100% { transform: scale(2.3); opacity:0; }
+    }
+    .splashRing{
+      position: fixed;
+      width: 10px; height: 10px;
+      border-radius: 999px;
+      border: 2px solid rgba(200,230,255,.55);
+      z-index: 9998;
+      pointer-events:none;
+      animation: splashRing .55s ease-out forwards;
+    }
 
     @media (max-width: 520px){
       body{padding:12px}
       .row{gap:8px}
       button{width:100%}
       input{width:100%}
-      .grid{grid-template-columns:repeat(4,1fr)}
+      .bridge{grid-template-columns:repeat(4,1fr)}
+      .stairs{grid-template-columns:repeat(5,1fr)}
       .big{font-size:20px}
+      .actions{flex-direction:column}
+      .actions button{min-width:auto}
+      .cell.stone{ height: 50px; }
     }
   </style>
 </head>
@@ -44,7 +149,7 @@
   <div class="row" style="justify-content:space-between">
     <div>
       <div class="big">챠오챠오 온라인</div>
-      <div class="muted">방 코드로 2~4인 멀티. 주사위 결과는 굴린 사람만 봄.</div>
+      <div class="muted">의심 가능 조건: <b>계단 말 보유자만</b> / 턴 순서: <b>시작 때만 랜덤 후 고정</b> / 호수 징검다리 + 낙하 애니메이션.</div>
     </div>
     <div class="row">
       <input id="name" placeholder="닉네임" maxlength="12"/>
@@ -70,7 +175,7 @@
     <div id="players" class="row" style="margin-top:8px"></div>
 
     <div class="card" id="statsCard" style="display:none">
-      <div class="muted">플레이어 상태 (남은 말/낙하/골인/위치)</div>
+      <div class="muted">플레이어 상태 (점수/계단/말)</div>
       <div id="stats" style="margin-top:10px; display:grid; gap:10px;"></div>
     </div>
 
@@ -90,18 +195,26 @@
         </div>
 
         <div class="muted" style="margin-top:10px">
-          의심 단계: 서버가 시계방향으로 한 명씩 “믿음/의심”을 요청함.
+          의심 단계: <b>계단 말 있는 사람만</b> 믿음/의심을 1회 선택 → 선택 완료되면 공개/판정.
         </div>
 
-        <div class="row" style="margin-top:10px">
+        <div class="actions" style="margin-top:10px">
           <button id="btnBelieve" disabled>믿음</button>
           <button id="btnChallenge" disabled>의심!</button>
         </div>
       </div>
 
       <div class="card">
-        <div class="muted">다리</div>
-        <div id="bridge" class="grid"></div>
+        <div class="muted">다리 (호수 위 징검다리)</div>
+        <div class="lakeWrap">
+          <div class="lakeRipples"></div>
+          <div id="bridge" class="grid bridge"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="muted">계단(10칸) — 1점~10점 (버리면 아래로 압축)</div>
+        <div id="stairs" class="grid stairs"></div>
       </div>
     </div>
   </div>
@@ -110,7 +223,7 @@
     <div class="card box">
       <div class="muted">지금은 <b>당신</b>만 보세요.</div>
       <div class="big" style="margin-top:10px">주사위 결과: <span id="rollValue">-</span></div>
-      <div class="muted" style="margin-top:10px">X면 1~4 중 하나를 선언(블러핑 강제).</div>
+      <div class="muted" style="margin-top:10px">X면 1~4 중 하나 선언(블러핑 강제).</div>
       <div class="row" style="justify-content:flex-end;margin-top:12px">
         <button id="closeModal">확인</button>
       </div>

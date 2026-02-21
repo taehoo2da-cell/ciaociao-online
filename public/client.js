@@ -23,6 +23,7 @@ const btnBelieve = $("btnBelieve");
 const btnChallenge = $("btnChallenge");
 
 const bridgeEl = $("bridge");
+const stairsEl = $("stairs");
 
 const statsCard = $("statsCard");
 const statsEl = $("stats");
@@ -34,25 +35,70 @@ const closeModal = $("closeModal");
 let state = null;
 let myId = null;
 
+/** ===== Animation state (FLIP + splash) ===== */
+let prevRects = new Map(); // key -> DOMRect
+let prevKeys = new Set();
+
+function keyForDot(where, playerId, index = 0) {
+  return `${where}:${playerId}:${index}`;
+}
+
+function takeSnapshot() {
+  prevRects = new Map();
+  prevKeys = new Set();
+  document.querySelectorAll("[data-dotkey]").forEach(el => {
+    const k = el.getAttribute("data-dotkey");
+    prevKeys.add(k);
+    prevRects.set(k, el.getBoundingClientRect());
+  });
+}
+
+function playFLIP() {
+  document.querySelectorAll("[data-dotkey]").forEach(el => {
+    const k = el.getAttribute("data-dotkey");
+    const prev = prevRects.get(k);
+    if (!prev) return;
+    const now = el.getBoundingClientRect();
+    const dx = prev.left - now.left;
+    const dy = prev.top - now.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+
+    el.style.transition = "none";
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    requestAnimationFrame(() => {
+      el.style.transition = "transform 260ms cubic-bezier(.2,.9,.2,1)";
+      el.style.transform = "translate(0,0)";
+    });
+  });
+}
+
+function spawnSplashAt(rect, color) {
+  const dot = document.createElement("div");
+  dot.className = "ghostDot";
+  dot.style.background = color;
+  dot.style.left = `${rect.left + rect.width/2 - 6}px`;
+  dot.style.top = `${rect.top + rect.height/2 - 6}px`;
+  document.body.appendChild(dot);
+
+  const ring = document.createElement("div");
+  ring.className = "splashRing";
+  ring.style.left = `${rect.left + rect.width/2 - 5}px`;
+  ring.style.top = `${rect.top + rect.height/2 + 18}px`;
+  document.body.appendChild(ring);
+
+  setTimeout(() => dot.remove(), 700);
+  setTimeout(() => ring.remove(), 700);
+}
+
 function isHost() {
   return state && state.hostId === myId;
 }
-
 function mySeat() {
   if (!state) return -1;
   return state.players.findIndex(p => p.socketId === myId);
 }
-
-function phase() {
-  return state?.game?.phase ?? "LOBBY";
-}
-
 function currentTurnSeat() {
   return state?.game?.turnSeat ?? -1;
-}
-
-function pendingSeat() {
-  return state?.game?.pendingChallengeSeat ?? null;
 }
 
 function renderPlayers() {
@@ -62,7 +108,6 @@ function renderPlayers() {
     d.className = "pill";
     d.style.borderColor = p.color;
     d.style.color = p.color;
-
     const turnMark = (p.seat === currentTurnSeat()) ? " (턴)" : "";
     const hostMark = (p.socketId === state.hostId) ? " ⭐" : "";
     d.textContent = `${p.name}${turnMark}${hostMark}`;
@@ -73,12 +118,10 @@ function renderPlayers() {
 function renderBridge() {
   bridgeEl.innerHTML = "";
   const g = state.game;
-  const len = g.bridgeLen;
-
-  for (let i = 0; i < len; i++) {
+  for (let i = 0; i < g.bridgeLen; i++) {
     const cell = document.createElement("div");
-    cell.className = "cell";
-    cell.textContent = String(i);
+    cell.className = "cell stone";
+    cell.innerHTML = `<small>${i}</small>`;
 
     const token = document.createElement("div");
     token.className = "token";
@@ -88,6 +131,7 @@ function renderBridge() {
         const dot = document.createElement("div");
         dot.className = "dot";
         dot.style.background = p.color;
+        dot.setAttribute("data-dotkey", keyForDot("bridge", p.id, 0));
         token.appendChild(dot);
       }
     });
@@ -97,30 +141,58 @@ function renderBridge() {
   }
 }
 
-function renderStatus() {
-  if (!state?.game) return;
+function renderStairs() {
+  stairsEl.innerHTML = "";
+  const g = state.game;
+  const order = g.stairsOrder;
 
+  for (let i = 1; i <= g.stairsSlots; i++) {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.innerHTML = `<small>${i}점</small>`;
+
+    const token = document.createElement("div");
+    token.className = "token";
+
+    const pid = order[i - 1];
+    if (pid) {
+      const p = g.players.find(x => x.id === pid);
+      if (p) {
+        const dot = document.createElement("div");
+        dot.className = "dot";
+        dot.style.background = p.color;
+        dot.setAttribute("data-dotkey", keyForDot("stairs", p.id, i));
+        token.appendChild(dot);
+      }
+    }
+
+    cell.appendChild(token);
+    stairsEl.appendChild(cell);
+  }
+}
+
+function renderStatus() {
   const g = state.game;
   const turnP = state.players[g.turnSeat];
 
   const labels = {
     ROLL: "주사위를 굴릴 차례",
     DECLARE: "1~4 선언",
-    CHALLENGE: "의심 단계(시계방향)",
-    END: "게임 종료"
+    CHALLENGE: "의심 단계(계단 보유자만)",
+    RESOLVE: "판정 중",
+    END: "게임 종료",
   };
 
   statusEl.textContent = `${turnP?.name ?? "-"} — ${labels[g.phase] ?? g.phase}`;
 
   const declared = g.declared ? `선언=${g.declared}` : "";
-  const pending = (g.pendingChallengeSeat !== null && g.phase === "CHALLENGE")
-    ? `다음 선택: ${state.players[g.pendingChallengeSeat]?.name}`
-    : "";
+  const elig = (g.phase === "CHALLENGE") ? `의심 가능 인원=${(g.eligibleSeats || []).length}` : "";
+  const prog = (g.phase === "CHALLENGE") ? `선택 진행=${g.decisionsCount}/${(g.eligibleSeats||[]).length}` : "";
   const winner = g.winnerId
     ? `승자: ${state.players.find(x=>x.socketId===g.winnerId)?.name ?? "?"} (${g.winnerReason})`
     : "";
 
-  substatusEl.textContent = [declared, pending, winner, g.lastAction].filter(Boolean).join(" | ");
+  substatusEl.textContent = [declared, elig, prog, winner, g.lastAction].filter(Boolean).join(" | ");
 }
 
 function renderStats() {
@@ -131,33 +203,29 @@ function renderStats() {
   statsCard.style.display = "block";
 
   const g = state.game;
-  const WIN = g.winCrossed;
+  const WIN = g.instantWinStairs;
   const TOTAL = g.pawnsTotal;
 
   statsEl.innerHTML = "";
   g.players.forEach((p) => {
-    const crossed = p.podium.length;
-    const onBridge = (p.onBridge !== null) ? 1 : 0;
+    const crossed = p.stairsCount;
     const fallen = p.eliminated;
-    const remaining = TOTAL - crossed - fallen; // 남은 말(다리 위 포함)
+    const remaining = TOTAL - crossed - fallen;
     const pos = (p.onBridge === null) ? "-" : String(p.onBridge);
     const progress = Math.min(100, Math.round((crossed / WIN) * 100));
-    const podiumText = crossed ? p.podium.join(", ") : "-";
 
     const div = document.createElement("div");
     div.className = "playerStat";
     div.innerHTML = `
       <div class="top">
-        <div class="name" style="color:${p.color}">${p.name}${p.id === myId ? " (나)" : ""}</div>
-        <div class="small">다리:${pos} | 다리위:${onBridge}</div>
+        <div class="name" style="color:${p.color}">${p.name}${p.id===myId?" (나)":""}</div>
+        <div class="small">점수 <b>${p.score}</b>점</div>
       </div>
       <div class="small" style="margin-top:6px">
-        남은 말: <b>${remaining}</b> / ${TOTAL} |
-        낙하: <b>${fallen}</b> |
-        골인: <b>${crossed}/${WIN}</b>
+        다리 위치: <b>${pos}</b> | 굴림 가능: <b>${p.canRoll ? "O" : "X"}</b>
       </div>
       <div class="small" style="margin-top:6px">
-        포디움: <b>${podiumText}</b>
+        남은 말: <b>${remaining}</b>/${TOTAL} | 낙하: <b>${fallen}</b> | 계단: <b>${crossed}/${WIN}</b>
       </div>
       <div class="bar"><div style="width:${progress}%"></div></div>
     `;
@@ -168,8 +236,6 @@ function renderStats() {
 function setControls() {
   const inRoom = !!state;
   btnLeave.disabled = !inRoom;
-
-  // 호스트 + 시작 전 + 2명 이상
   btnStart.disabled = !(inRoom && isHost() && !state.started && state.players.length >= 2);
 
   if (!state?.game) {
@@ -189,9 +255,11 @@ function setControls() {
   btnDeclare.disabled = !(g.phase === "DECLARE" && isMyTurn);
   declareEl.disabled = !(g.phase === "DECLARE" && isMyTurn);
 
-  const isMyDecision = (g.phase === "CHALLENGE" && pendingSeat() === seat);
-  btnBelieve.disabled = !isMyDecision;
-  btnChallenge.disabled = !isMyDecision;
+  // ✅ 의심 가능 조건: 계단 말 가진 사람만 + 턴 플레이어 제외 + CHALLENGE 단계
+  const iAmEligible = (g.eligibleSeats || []).includes(seat);
+  const canDecide = (g.phase === "CHALLENGE" && iAmEligible);
+  btnBelieve.disabled = !canDecide;
+  btnChallenge.disabled = !canDecide;
 }
 
 function renderAll() {
@@ -205,6 +273,7 @@ function renderAll() {
   if (state.game) {
     renderStatus();
     renderBridge();
+    renderStairs();
     renderStats();
   } else {
     statsCard.style.display = "none";
@@ -213,7 +282,7 @@ function renderAll() {
   setControls();
 }
 
-/** ===== UI 이벤트 ===== */
+/** UI 이벤트 */
 btnCreate.addEventListener("click", () => {
   socket.emit("room:create", { name: nameEl.value || "Player" });
 });
@@ -243,26 +312,53 @@ btnDeclare.addEventListener("click", () => {
 
 btnBelieve.addEventListener("click", () => {
   socket.emit("game:challengeDecision", { code: state.code, decision: "believe" });
+  btnBelieve.disabled = true;
+  btnChallenge.disabled = true;
 });
 
 btnChallenge.addEventListener("click", () => {
   socket.emit("game:challengeDecision", { code: state.code, decision: "challenge" });
+  btnBelieve.disabled = true;
+  btnChallenge.disabled = true;
 });
 
 /** 모달 */
 closeModal.addEventListener("click", () => modal.classList.remove("show"));
 modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("show"); });
 
-/** ===== 소켓 ===== */
+/** 소켓 */
 socket.on("connect", () => {
   myId = socket.id;
   if (state) renderAll();
 });
 
 socket.on("room:update", (s) => {
+  // 렌더 전 위치 기록
+  takeSnapshot();
+
+  // 상태 갱신 + 렌더
   state = s;
-  if (!myId && socket.id) myId = socket.id; // 타이밍 보정
+  if (!myId && socket.id) myId = socket.id;
   renderAll();
+
+  // 이동 애니메이션
+  playFLIP();
+
+  // 낙하 애니메이션(사라진 dot 키)
+  const nowKeys = new Set();
+  document.querySelectorAll("[data-dotkey]").forEach(el => nowKeys.add(el.getAttribute("data-dotkey")));
+
+  for (const k of prevKeys) {
+    if (nowKeys.has(k)) continue;
+    const rect = prevRects.get(k);
+    if (!rect) continue;
+
+    const parts = k.split(":"); // where:pid:index
+    const pid = parts[1];
+    const p = state?.game?.players?.find(x => x.id === pid);
+    const color = p?.color || "#7aa2ff";
+    spawnSplashAt(rect, color);
+  }
 });
 
 socket.on("game:privateRoll", ({ roll }) => {
